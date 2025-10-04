@@ -3,7 +3,7 @@ services:
   - type: web
     name: tgdrive
     repo: https://github.com/TechShreyash/TGDrive
-    runtime: python-3.11
+    runtime: python
     branch: main
     plan: free
     autoDeploy: false
