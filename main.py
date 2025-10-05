@@ -43,7 +43,7 @@ async def home_page():
 
 
 @app.get("/stream")
-async def home_page():
+async def stream_page():
     return FileResponse("website/VideoPlayer.html")
 
 
@@ -131,12 +131,24 @@ async def api_get_directory(request: Request):
 
     elif "/share_" in data["path"]:
         path = data["path"].split("_", 1)[1]
-        folder_data, auth_home_path = DRIVE_DATA.get_directory(path, is_admin, auth)
-        auth_home_path= auth_home_path.replace("//", "/") if auth_home_path else None
+        # DRIVE_DATA.get_directory can return either:
+        # - folder_data (when request is allowed for admin)
+        # - (folder_data, auth_home_path) (when auth hash was used)
+        # - None (when not authorized)
+        result = DRIVE_DATA.get_directory(path, is_admin, auth)
+        if result is None:
+            # Not authorized to view this shared path
+            return JSONResponse({"status": "Invalid password or unauthorized"})
+
+        if isinstance(result, tuple):
+            folder_data, auth_home_path = result
+        else:
+            folder_data = result
+            auth_home_path = None
+
+        auth_home_path = auth_home_path.replace("//", "/") if auth_home_path else None
         folder_data = convert_class_to_dict(folder_data, isObject=True, showtrash=False)
-        return JSONResponse(
-            {"status": "ok", "data": folder_data, "auth_home_path": auth_home_path}
-        )
+        return JSONResponse({"status": "ok", "data": folder_data, "auth_home_path": auth_home_path})
 
     else:
         folder_data = DRIVE_DATA.get_directory(data["path"])
@@ -153,17 +165,23 @@ async def upload_file(
     path: str = Form(...),
     password: str = Form(...),
     id: str = Form(...),
-    total_size: str = Form(...),
+    total_size: int = Form(...),
 ):
     global SAVE_PROGRESS
 
     if password != ADMIN_PASSWORD:
         return JSONResponse({"status": "Invalid password"})
 
-    total_size = int(total_size)
+    # total_size is declared as int so FastAPI will coerce it for us
     SAVE_PROGRESS[id] = ("running", 0, total_size)
 
-    ext = file.filename.lower().split(".")[-1]
+    # Guard against missing or None filename
+    filename = getattr(file, "filename", None) or ""
+    if "." in filename:
+        ext = filename.lower().rsplit(".", 1)[-1]
+    else:
+        # fallback extension when none is provided
+        ext = "bin"
 
     cache_dir = Path("./cache")
     cache_dir.mkdir(parents=True, exist_ok=True)
